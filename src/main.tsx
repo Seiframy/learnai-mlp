@@ -1,88 +1,125 @@
-import { StrictMode, useId, useReducer, useState } from 'react';
+import { useEffect, useMemo, useReducer, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { display, forward, isCorrect, targetValue, workedSolution, type Network, type Target } from './network';
+import { display, forward, workedSolution, type ForwardPass, type Network } from './network';
 import { initialState, labReducer, type Field } from './state';
+import { controls, lesson, meetsGoal, type ControlId } from './lesson';
+import { completed, duration, frame, startRun, type Run } from './run';
+import { parameter, Scene } from './Scene';
 import './styles.css';
 
-function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
-  const id = useId();
+function Inspector({ network, selection, select, edit }: {
+  network: Network; selection: ControlId; select: (id: ControlId) => void; edit: (field: Field, value: number) => void;
+}) {
+  const control = controls.find(c => c.id === selection)!;
+  const value = parameter(network, selection);
   const [draft, setDraft] = useState(String(value));
-  const valid = draft.trim() !== '' && Number.isFinite(Number(draft)) && Math.abs(Number(draft)) <= 10;
-  return <label className="number-field" htmlFor={id}><span>{label}</span>
-    <input id={id} type="number" min="-10" max="10" step="any" value={draft} aria-invalid={!valid} aria-describedby={!valid ? `${id}-error` : undefined}
-      onChange={e => { const text = e.target.value; setDraft(text); if (text.trim() && Number.isFinite(Number(text)) && Math.abs(Number(text)) <= 10) onChange(Number(text)); }}/>
-    {!valid && <small id={`${id}-error`} className="error">Enter a number from −10 to 10. Last valid value is still in use.</small>}
-  </label>;
-}
-
-type Selection = { field: Field; label: string; value: number };
-function Builder({ network: n, revision, edit }: { network: Network; revision: number; edit: (f: Field, v: number) => void }) {
-  const [selected, setSelected] = useState(0);
-  const [reveal, setReveal] = useState(false);
-  const p = forward(n);
-  const items: Selection[] = [
-    ...([0, 1] as const).flatMap(neuron => ([0, 1] as const).map(input => ({ field: { kind: 'hiddenWeight', neuron, input } as Field, label: `x${input + 1} → h${neuron + 1}`, value: n.hiddenWeights[neuron][input] }))),
-    ...([0, 1] as const).map(index => ({ field: { kind: 'outputWeight', index } as Field, label: `h${index + 1} → y`, value: n.outputWeights[index] })),
-    ...([0, 1] as const).map(index => ({ field: { kind: 'hiddenBias', index } as Field, label: `h${index + 1} bias`, value: n.hiddenBiases[index] })),
-    { field: { kind: 'outputBias' }, label: 'y bias', value: n.outputBias },
-  ];
-  const node = [{ x: 70, y: 80 }, { x: 70, y: 220 }, { x: 270, y: 80 }, { x: 270, y: 220 }, { x: 470, y: 150 }];
-  const edges = [[0, 2], [1, 2], [0, 3], [1, 3], [2, 4], [3, 4]];
-  const choose = (i: number) => setSelected(i);
-  return <section className="panel" aria-labelledby="builder-title"><div className="section-head"><span className="step">01</span><div><h2 id="builder-title">Build & inspect</h2><p>Fixed 2–2–1 topology. Select a connection or neuron to edit it.</p></div></div>
-    <span className="badge">Shared network · revision {revision}</span>
-    <div className="input-row">{([0, 1] as const).map(i => <NumberField key={`input-${i}`} label={`Input x${i + 1}`} value={n.inputs[i]} onChange={v => edit({ kind: 'input', index: i }, v)}/>)}</div>
-    <svg className="network" viewBox="0 0 540 300" role="group" aria-label="Interactive neural network: two inputs, two ReLU hidden neurons, one linear output">
-      <text x="70" y="25" textAnchor="middle" className="layer-label">INPUT</text><text x="270" y="25" textAnchor="middle" className="layer-label">HIDDEN · ReLU</text><text x="470" y="25" textAnchor="middle" className="layer-label">OUTPUT · linear</text>
-      {edges.map(([a, b], i) => <g key={i} className={`connection ${selected === i ? 'selected' : ''}`} role="button" tabIndex={0} aria-label={`Inspect ${items[i].label}`} aria-pressed={selected === i} onClick={() => choose(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(i); } }}>
-        <line className="hit" x1={node[a].x} y1={node[a].y} x2={node[b].x} y2={node[b].y}/><line className="wire" x1={node[a].x} y1={node[a].y} x2={node[b].x} y2={node[b].y}/>
-      </g>)}
-      {node.map((pos, i) => <g key={i} className={`neuron ${i >= 2 ? 'editable' : ''} ${selected === i + 4 && i >= 2 ? 'active' : ''}`} {...(i >= 2 ? { role: 'button', tabIndex: 0, 'aria-label': `Inspect ${items[i + 4].label}`, onClick: () => choose(i + 4), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(i + 4); } } } : {})}>
-        <circle cx={pos.x} cy={pos.y} r="27"/><text x={pos.x} y={pos.y + 5} textAnchor="middle">{['x1', 'x2', 'h1', 'h2', 'y'][i]}</text>
-        <text className="node-value" x={pos.x} y={pos.y + 48} textAnchor="middle">{i < 2 ? display(n.inputs[i]) : reveal ? display(i < 4 ? p.hidden[i - 2] : p.output) : '?'}</text>
-      </g>)}
-    </svg>
-    <div className="inspect"><label htmlFor="parameter">Connection or bias<select id="parameter" value={selected} onChange={e => choose(Number(e.target.value))}>{items.map((item, i) => <option value={i} key={item.label}>{item.label}</option>)}</select></label>
-      <NumberField key={selected} label={`${items[selected].label} value`} value={items[selected].value} onChange={v => edit(items[selected].field, v)}/>
+  const [error, setError] = useState('');
+  const weight = control.field.kind.endsWith('Weight');
+  function apply(raw: string) {
+    setDraft(raw);
+    const numeric = Number(raw);
+    if (raw.trim() && Number.isFinite(numeric) && Math.abs(numeric) <= 10) {
+      edit(control.field,numeric);
+      setError('');
+    } else setError('Use a number from −10 to 10. The last valid value is still in use.');
+  }
+  return <section className="panel" aria-labelledby="inspect-title">
+    <span className="kicker">01 / ADJUST</span>
+    <h2 id="inspect-title">Tune the circuit</h2>
+    <div className="fields">
+      <label>Component<select value={selection} onChange={e => select(e.target.value as ControlId)}>
+        <optgroup label="Connection weights">{controls.slice(0,6).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+        <optgroup label="Inputs and biases">{controls.slice(6).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</optgroup>
+      </select></label>
+      <label>{weight ? 'Weight' : 'Value'}<input type="number" step="any" min="-10" max="10" value={draft}
+        aria-invalid={!!error} aria-describedby={error ? 'parameter-error' : undefined} onChange={e => apply(e.target.value)}/></label>
     </div>
-    <div className="parameter-strip" aria-label="Current network parameters">{items.map((item, i) => <button key={item.label} className={selected === i ? 'chip active' : 'chip'} onClick={() => choose(i)} aria-pressed={selected === i}>{item.label}: <strong>{display(item.value)}</strong></button>)}</div>
-    <label className="toggle"><input type="checkbox" checked={reveal} onChange={e => setReveal(e.target.checked)}/> Reveal neuron values (study mode)</label>
-    <p className="hint">Hidden neurons use ReLU: max(0, weighted sum + bias). The output is linear and may be negative. This demo does not train weights.</p>
+    <input type="range" aria-label="Adjust selected parameter" min="-10" max="10" step=".01" value={value} onChange={e => apply(e.target.value)}/>
+    <p id="parameter-error" className={error ? 'error' : 'muted'}>{error || (selection === 'x1-h1' ? (value === 3 ? 'Now predict the output and send a signal.' : 'Try 3 to see what changes at the first ReLU.') : 'Select any node or cable to inspect its value.')}</p>
   </section>;
 }
 
-const targets: { id: Target; label: string }[] = [
-  { id: 'h1-sum', label: 'h1 weighted sum, before ReLU' }, { id: 'h1', label: 'h1 activation, after ReLU' },
-  { id: 'h2-sum', label: 'h2 weighted sum, before ReLU' }, { id: 'h2', label: 'h2 activation, after ReLU' },
-  { id: 'output', label: 'Output y (linear)' },
-];
-function Challenge({ network, revision, target, setTarget }: { network: Network; revision: number; target: Target; setTarget: (target: Target) => void }) {
-  const [answer, setAnswer] = useState('');
-  const [checked, setChecked] = useState(false);
-  const p = forward(network), expected = targetValue(p, target);
-  const correct = isCorrect(answer, expected);
-  const canCheck = answer.trim() !== '' && Number.isFinite(Number(answer));
-  return <section className="panel challenge" aria-labelledby="challenge-title"><div className="section-head"><span className="step">02</span><div><h2 id="challenge-title">Predict & explain</h2><p>The same inputs, weights and biases. No copied network.</p></div></div>
-    <span className="badge">Shared network · revision {revision}</span>
-    <label htmlFor="target">What will you calculate?<select id="target" value={target} onChange={e => { setTarget(e.target.value as Target); setChecked(false); setAnswer(''); }}>{targets.map(t => <option value={t.id} key={t.id}>{t.label}</option>)}</select></label>
-    <div className="formula"><span>FORWARD PASS</span><p>z = x₁w₁ + x₂w₂ + b</p><p>h = max(0, z)</p><p>y = h₁v₁ + h₂v₂ + bᵧ</p></div>
-    <form onSubmit={e => { e.preventDefault(); if (canCheck) setChecked(true); }}>
-      <label htmlFor="prediction">Your predicted value<input id="prediction" type="number" step="any" value={answer} onChange={e => { setAnswer(e.target.value); setChecked(false); }} placeholder="e.g. −1" required/></label>
-      <p className="hint">Accepted error: ±0.001. Use the full values, not rounded labels.</p><button type="submit" className="primary" disabled={!canCheck}>Check prediction</button>
+function Experiment({ network, pass, run, setRun }: { network: Network; pass: ForwardPass; run: Run | null; setRun: (r: Run | null) => void }) {
+  const [guess, setGuess] = useState('');
+  const [error, setError] = useState('');
+  const f = run ? frame(run.elapsed) : null;
+  const done = !!f?.done;
+  const playing = !!run && !done;
+  useEffect(() => {
+    if (!run || !playing) return;
+    const snapshot = run;
+    const start = performance.now() - snapshot.elapsed;
+    let ticket = 0;
+    function tick(now: number) {
+      const elapsed = Math.max(0, Math.min(duration, now - start));
+      setRun({ ...snapshot, elapsed });
+      if (elapsed < duration) ticket = requestAnimationFrame(tick);
+    }
+    ticket = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(ticket);
+  // Frame updates keep this attempt's original clock.
+  }, [playing, setRun]);
+  function launch(event: FormEvent) {
+    event.preventDefault();
+    const next = startRun(network, pass, guess);
+    if (!next) { setError('Enter a numeric prediction first.'); return; }
+    setError('');
+    setRun(matchMedia('(prefers-reduced-motion: reduce)').matches ? {...next,elapsed:duration} : next);
+  }
+  return <section className="panel experiment" aria-labelledby="test-title">
+    <span className="kicker">02 / TEST</span>
+    <h2 id="test-title">Predict &amp; send</h2>
+    <form className="fields" onSubmit={launch} noValidate>
+      <label>Predicted output y<input type="number" step="any" placeholder="e.g. 0.5" value={guess} disabled={playing}
+        aria-invalid={!!error} aria-describedby={error ? 'prediction-error' : undefined}
+        onChange={e => {setGuess(e.target.value);setError('');}}/></label>
+      <button className="primary" disabled={playing}>{playing ? 'Signal in transit…' : 'Send signal'} <span aria-hidden="true">↗</span></button>
     </form>
-    <div aria-live="polite">{checked && <div className={`feedback ${correct ? 'correct' : 'retry'}`}><h3>{correct ? 'Correct — nice reasoning.' : 'Not quite — trace the calculation.'}</h3><p>{workedSolution(network, p, target)}</p></div>}</div>
-    <p className="hint">Changing any valid network value starts a fresh prediction and clears previous feedback. Choose another target to practise the next step.</p>
+    {error && <p id="prediction-error" className="error" role="alert">{error}</p>}
+    <div aria-live="polite">
+      <p className="muted">{lesson.cues[f?.phase ?? 0]}</p>
+      {run && f && f.phase >= 2 && <p className="relu-line">ReLU · H₁: <strong>{display(run.pass.hiddenSums[0])} → {display(run.pass.hidden[0])}</strong>
+        {' · '}H₂: <strong>{display(run.pass.hiddenSums[1])} → {display(run.pass.hidden[1])}</strong>
+        {run.pass.hiddenSums.some(v => v < 0) && <span className="blocked"> · Negative sum blocked</span>}</p>}
+      {run && done && <>
+        <p className={completed(run) ? 'success outcome' : 'outcome'}>
+          {completed(run) ? 'Challenge complete' : meetsGoal(run.pass) ? 'Lift reached target' : 'Lift below target'}
+          {' · '}Output <strong>{display(run.pass.output)}</strong>
+        </p>
+        <p className="muted">{run.correct ? 'Prediction correct.' : 'Prediction off. Compare your calculation with the worked result.'}</p>
+        <details><summary>See the calculation</summary>
+          <p>{workedSolution(network,run.pass,'h1')}</p><p>{workedSolution(network,run.pass,'h2')}</p>
+          <p>{workedSolution(network,run.pass,'output')}</p>
+        </details>
+      </>}
+    </div>
   </section>;
 }
 
 function App() {
   const [state, dispatch] = useReducer(labReducer, undefined, initialState);
-  const [resetId, setResetId] = useState(0);
-  const [target, setTarget] = useState<Target>('h1-sum');
-  return <main><header><div className="wordmark"><span>L</span> LearnAI <small>NEURAL LAB</small></div><button onClick={() => { dispatch({ type: 'reset' }); setResetId(v => v + 1); setTarget('h1-sum'); }}>Reset example</button></header>
-    <div className="intro"><span className="eyebrow">ONE NETWORK · TWO WAYS TO LEARN</span><h1>Build it. Predict it.<br/><em>Understand the connection.</em></h1><p>Explore a small multilayer perceptron, then calculate its forward pass. Every edit updates both activities.</p></div>
-    <div className="activities"><Builder key={resetId} network={state.network} revision={state.revision} edit={(field, value) => dispatch({ type: 'edit', field, value })}/><Challenge key={state.revision} network={state.network} revision={state.revision} target={target} setTarget={setTarget}/></div>
-    <footer>Milestone 1 · Fixed topology · Hidden ReLU + linear output · Session-only state · No AI or backend</footer>
+  const [selection, select] = useState<ControlId>(lesson.defaultSelection);
+  const [attempt, setAttempt] = useState<{revision: number; run: Run | null}>({revision:0,run:null});
+  const { network, revision } = state;
+  const pass = useMemo(() => forward(network), [network]);
+  const run = attempt.revision === revision ? attempt.run : null;
+  const setRun = useMemo(() => (next: Run | null) => setAttempt({revision,run:next}), [revision]);
+  const [resetKey, setResetKey] = useState(0);
+  return <main>
+    <header className="mast"><a href="./" className="brand"><span aria-hidden="true">◈</span> LearnAI</a>
+      <div className="edition">INTERACTIVE EXHIBITS <b> / </b> 001</div>
+      <button className="reset" onClick={() => {dispatch({type:'reset'});select(lesson.defaultSelection);setResetKey(k=>k+1);}}>↺ Reset bench</button></header>
+    <div className="hero"><div><span className="kicker">APPLIED MACHINE LEARNING / FIELD LAB</span><h1>{lesson.title}</h1>
+      <p>Send a signal through a tiny neural network and use its output to power a lift.</p></div>
+      <div className="objective"><span>MISSION OBJECTIVE</span><strong>Lift target ≥ {lesson.goal.toFixed(2)}</strong><small>Predict the output to complete the challenge.</small></div>
+    </div>
+    <Scene network={network} selection={selection} select={select} run={run}/>
+    <div className="console">
+      <Inspector key={selection+':'+resetKey} network={network} selection={selection} select={select} edit={(field,value) => dispatch({type:'edit',field,value})}/>
+      <Experiment key={revision} network={network} pass={pass} run={run} setRun={setRun}/>
+    </div>
+    <footer>LEARN AI / EXPERIMENT 001 <span>2 INPUTS · 2 ReLU UNITS · 1 LINEAR OUTPUT</span></footer>
   </main>;
 }
-createRoot(document.getElementById('root')!).render(<StrictMode><App/></StrictMode>);
+
+createRoot(document.getElementById('root')!).render(<App/>);

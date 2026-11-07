@@ -1,7 +1,16 @@
 {
   "compilerOptions": {
-    "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext",
-    "strict": true, "skipLibCheck": true, "outDir": ".test-dist", "types": ["node"]
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "outDir": ".test-dist",
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/network.ts", "src/state.ts", "tests/*.ts"]
+  "include": [
+    "tests/*.ts"
+  ]
 }

@@ -1,5 +1,5 @@
 {
-  "name": "learnai-mlp-lab",
+  "name": "learnai-neural-workshop",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,13 +7,18 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/network.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test .test-dist/tests/network.test.js .test-dist/tests/workshop.test.js"
   },
-  "dependencies": { "react": "19.2.9", "react-dom": "19.2.9" },
+  "dependencies": {
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
+    "three": "0.185.0"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/three": "0.185.0",
     "typescript": "~5.9.0",
     "vite": "~6.4.5"
   }
